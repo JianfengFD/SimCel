@@ -22,6 +22,7 @@ real*8 F_total(1:3), F_norm
 ! === Parameters
 real*8 H_modulus_in, kpp_alpha_in, mu_ms_in
 real*8 lam_base
+real*8 avg_len_E, scale_fac
 
 ! === I/O (unused vars removed)
 
@@ -63,6 +64,15 @@ call Move_Cell(Cels, 1, (/0.0d0, 0.0d0, 0.0d0/))
 
 ! I-7: Compute geometry on current shape
 call Get_shape_information(Cels, 1)
+
+! I-7b: Rescale so that average Len_E = 1
+avg_len_E = sum(Cels(1)%Len_E(1:Cels(1)%N_E)) / Cels(1)%N_E
+scale_fac = 1.0d0 / avg_len_E
+write(*,*) 'Before rescale: avg_len_E =', avg_len_E, '  scale_fac =', scale_fac
+Cels(1)%rv(1:Cels(1)%N_V, 1:3) = Cels(1)%rv(1:Cels(1)%N_V, 1:3) * scale_fac
+call Get_shape_information(Cels, 1)
+write(*,*) 'After  rescale: avg_len_E =', &
+& sum(Cels(1)%Len_E(1:Cels(1)%N_E)) / Cels(1)%N_E
 
 ! I-8: Store reference geometry from current shape
 ! Len_E_zero and Area_F_zero are computed from rv0 (= copy of rv)
