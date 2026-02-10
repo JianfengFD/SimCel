@@ -1,0 +1,9 @@
+25.0       ! kpp_alpha   - area-shear ratio parameter
+12.5       ! mu_ms       - shear modulus parameter
+1.0        ! b_ph        - interface gradient coefficient
+1.0        ! a2_ph       - GL parameter (quadratic)
+1.0        ! a4_ph       - GL parameter (quartic)
+0.5        ! L_fi        - CH mobility
+0.0        ! kpp1_phi    - bending-phi modulus coupling
+0.0        ! c0_phi      - base spontaneous curvature
+0.5        ! c1_phi      - phi-curvature coupling
