@@ -15,7 +15,7 @@ type(Cel)::Cels(1:1)
 type(PtCell)::Vm
 
 ! === Dynamics
-integer t, tk, N_V1, seed1
+integer t, t_NV, tk, NN, N_V1, seed1
 real*8 dt, f_rescale
 real*8 F_total(1:3), F_norm
 
@@ -109,48 +109,50 @@ write(*,*) 'Energy_tot =', Cels(1)%energy_tot
 ! =========================================
 
 tk = 0
+NN = 45000  ! outer time steps; each step = N_V random vertex moves
 
-Loop_main: DO t = 1, 9000000
+Loop_main: DO t = 1, NN
 
-    ! --- Random vertex selection (skip boundary)
-    Vm%V_move = mod(int(random1(seed1) * Cels(1)%N_V), Cels(1)%N_V) + 1
-    if(Cels(1)%IS_BC_V(Vm%V_move).eq.1) cycle Loop_main
-    if(Cels(1)%IS_NEXTBC_V(Vm%V_move).eq.1) cycle Loop_main
+    do t_NV = 1, Cels(1)%N_V
 
-    Vm%rv_move = Cels(1)%rv(Vm%V_move, 1:3)
+        ! --- Random vertex selection (skip boundary)
+        Vm%V_move = mod(int(random1(seed1) * Cels(1)%N_V), Cels(1)%N_V) + 1
+        if(Cels(1)%IS_BC_V(Vm%V_move).eq.1) cycle
+        if(Cels(1)%IS_NEXTBC_V(Vm%V_move).eq.1) cycle
 
-    ! --- Update lambda (area constraint tension)
-    Cels(1)%lamda = Cels(1)%kpp_area * (Cels(1)%area_tot - Cels(1)%area_tot_zero) &
-    & / Cels(1)%area_tot_zero
+        Vm%rv_move = Cels(1)%rv(Vm%V_move, 1:3)
 
-    ! --- Compute forces
-    ! Bending force (numerical finite difference)
-    Vm%PM_Force_Point = 0.0
-    call Point_H_Force_Cell(Cels, 1, Vm, Cels(1)%integral_H_A)
+        ! --- Update lambda (area constraint tension)
+        Cels(1)%lamda = Cels(1)%kpp_area * (Cels(1)%area_tot - Cels(1)%area_tot_zero) &
+        & / Cels(1)%area_tot_zero
 
-    ! Area constraint force (analytical, using PV with P=0)
-    Vm%PV_Force_Point = 0.0
-    Cels(1)%P = 0.0
-    call Point_PV_Force_Cell(Cels, 1, Vm)
+        ! --- Compute forces
+        ! Bending force (numerical finite difference)
+        Vm%PM_Force_Point = 0.0
+        call Point_H_Force_Cell(Cels, 1, Vm, Cels(1)%integral_H_A)
 
-    ! Shear (MS) force (analytical)
-    Vm%MS_Force_Point = 0.0
-    call Point_MS_Force_Cell(Cels, 1, Vm)
+        ! Area constraint force (analytical, using PV with P=0)
+        Vm%PV_Force_Point = 0.0
+        Cels(1)%P = 0.0
+        call Point_PV_Force_Cell(Cels, 1, Vm)
 
-    ! --- Total force and stability guard
-    F_total = f_rescale * (Vm%PM_Force_Point + Vm%PV_Force_Point + Vm%MS_Force_Point)
-    F_norm = sum(F_total**2)**0.5
+        ! Shear (MS) force (analytical)
+        Vm%MS_Force_Point = 0.0
+        call Point_MS_Force_Cell(Cels, 1, Vm)
 
-    if(F_norm * dt .lt. 0.05)then
-        Cels(1)%rv(Vm%V_move, 1:3) = Vm%rv_move + dt * F_total
-    endif
+        ! --- Total force and stability guard
+        F_total = f_rescale * (Vm%PM_Force_Point + Vm%PV_Force_Point + Vm%MS_Force_Point)
+        F_norm = sum(F_total**2)**0.5
 
-    ! --- Local geometry update (no full remesh for static mesh)
-    Vm%rv_move = Cels(1)%rv(Vm%V_move, 1:3)
-    call Point_Update_Cell(Cels, 1, Vm)
+        if(F_norm * dt .lt. 0.05)then
+            Cels(1)%rv(Vm%V_move, 1:3) = Vm%rv_move + dt * F_total
+        endif
 
-    ! --- Update current edge lengths (needed for shear force next step)
-    ! This is done locally in Update_New_Parameters already for edges around V_move
+        ! --- Local geometry update
+        Vm%rv_move = Cels(1)%rv(Vm%V_move, 1:3)
+        call Point_Update_Cell(Cels, 1, Vm)
+
+    enddo ! End of t_NV
 
     ! --- Reference shape shrinking: every 100 steps, shrink x,y by 1/1000
     if(mod(t, 100).eq.0)then
