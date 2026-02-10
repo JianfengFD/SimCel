@@ -1,0 +1,57 @@
+\\2011-mar-20
+
+sqsub -r 24:00 -o a.log ./simcap 2.0 3.0 'axi' 201
+sqsub -r 24:00 -o a.log ./simcap 2.0 3.2 'axi' 202
+sqsub -r 24:00 -o a.log ./simcap 2.0 3.4 'axi' 203
+sqsub -r 24:00 -o a.log ./simcap 2.0 3.6 'axi' 204
+sqsub -r 24:00 -o a.log ./simcap 2.0 3.8 'axi' 205
+sqsub -r 24:00 -o a.log ./simcap 2.0 4.0 'axi' 206
+sqsub -r 24:00 -o a.log ./simcap 2.0 4.2 'axi' 207
+sqsub -r 24:00 -o a.log ./simcap 2.0 4.4 'axi' 208
+sqsub -r 24:00 -o a.log ./simcap 2.0 4.6 'axi' 209
+sqsub -r 24:00 -o a.log ./simcap 2.0 4.8 'axi' 210
+sqsub -r 24:00 -o a.log ./simcap 2.0 5.0 'axi' 211
+sqsub -r 24:00 -o a.log ./simcap 2.0 5.2 'axi' 212
+sqsub -r 24:00 -o a.log ./simcap 2.0 5.4 'axi' 213
+sqsub -r 24:00 -o a.log ./simcap 2.0 5.6 'axi' 214
+sqsub -r 24:00 -o a.log ./simcap 2.0 5.8 'axi' 215
+sqsub -r 24:00 -o a.log ./simcap 2.0 6.0 'axi' 216
+sqsub -r 24:00 -o a.log ./simcap 2.0 6.2 'axi' 217
+sqsub -r 24:00 -o a.log ./simcap 2.0 6.4 'axi' 218
+sqsub -r 24:00 -o a.log ./simcap 2.0 6.6 'axi' 219
+sqsub -r 24:00 -o a.log ./simcap 2.0 6.8 'axi' 220
+sqsub -r 24:00 -o a.log ./simcap 2.0 7.0 'axi' 221
+sqsub -r 24:00 -o a.log ./simcap 2.0 7.2 'axi' 222
+sqsub -r 24:00 -o a.log ./simcap 2.0 7.4 'axi' 223
+sqsub -r 24:00 -o a.log ./simcap 2.0 7.6 'axi' 224
+sqsub -r 24:00 -o a.log ./simcap 2.0 7.8 'axi' 225
+
+
+sqsub -r 24:00 -o a.log ./simcap 0.0 3.0 'axi' 301
+sqsub -r 24:00 -o a.log ./simcap 0.0 3.2 'axi' 302
+sqsub -r 24:00 -o a.log ./simcap 0.0 3.4 'axi' 303
+sqsub -r 24:00 -o a.log ./simcap 0.0 3.6 'axi' 304
+sqsub -r 24:00 -o a.log ./simcap 0.0 3.8 'axi' 305
+sqsub -r 24:00 -o a.log ./simcap 0.0 4.0 'axi' 306
+sqsub -r 24:00 -o a.log ./simcap 0.0 4.2 'axi' 307
+sqsub -r 24:00 -o a.log ./simcap 0.0 4.4 'axi' 308
+sqsub -r 24:00 -o a.log ./simcap 0.0 4.6 'axi' 309
+sqsub -r 24:00 -o a.log ./simcap 0.0 4.8 'axi' 310
+sqsub -r 24:00 -o a.log ./simcap 0.0 5.0 'axi' 311
+sqsub -r 24:00 -o a.log ./simcap 0.0 5.2 'axi' 312
+sqsub -r 24:00 -o a.log ./simcap 0.0 5.4 'axi' 313
+sqsub -r 24:00 -o a.log ./simcap 0.0 5.6 'axi' 314
+sqsub -r 24:00 -o a.log ./simcap 0.0 5.8 'axi' 315
+sqsub -r 24:00 -o a.log ./simcap 0.0 6.0 'axi' 316
+sqsub -r 24:00 -o a.log ./simcap 0.0 6.2 'axi' 317
+sqsub -r 24:00 -o a.log ./simcap 0.0 6.4 'axi' 318
+sqsub -r 24:00 -o a.log ./simcap 0.0 6.6 'axi' 319
+sqsub -r 24:00 -o a.log ./simcap 0.0 6.8 'axi' 320
+sqsub -r 24:00 -o a.log ./simcap 0.0 7.0 'axi' 321
+sqsub -r 24:00 -o a.log ./simcap 0.0 7.2 'axi' 322
+sqsub -r 24:00 -o a.log ./simcap 0.0 7.4 'axi' 323
+sqsub -r 24:00 -o a.log ./simcap 0.0 7.6 'axi' 324
+sqsub -r 24:00 -o a.log ./simcap 0.0 7.8 'axi' 325
+
+
+
