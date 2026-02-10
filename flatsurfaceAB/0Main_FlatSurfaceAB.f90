@@ -31,6 +31,8 @@ real*8 L_fi_in
 ! === I/O
 character*2 kc
 integer i
+character(len=256) :: para_file
+integer :: nargs
 
 ! =========================================
 ! SEC. 0  Parameter setup
@@ -40,17 +42,43 @@ dt_fi = 0.01
 f_rescale = 0.8
 seed1 = 26345678
 H_modulus_in = 1.0
-kpp_alpha_in = 25.0
-mu_ms_in = 12.5
 
-! Phase parameters
-b_ph_in = 1.0        ! interface gradient coefficient
-a2_ph_in = 1.0       ! GL parameter
-a4_ph_in = 1.0       ! GL parameter
-L_fi_in = 0.5        ! CH mobility
-kpp1_phi_in = 0.0    ! bending-phi modulus coupling
-c0_phi_in = 0.0      ! base spontaneous curvature
-c1_phi_in = 0.5      ! phi-curvature coupling
+! --- Read parameters from external file (command line argument)
+nargs = command_argument_count()
+if(nargs .lt. 1) then
+    write(*,*) 'Usage: ./0Main_FlatSurfaceAB para.txt'
+    write(*,*) 'ERROR: parameter file not specified'
+    stop
+endif
+call get_command_argument(1, para_file)
+
+open(10, FILE=trim(para_file), STATUS='old', ERR=901)
+read(10,*) kpp_alpha_in
+read(10,*) mu_ms_in
+read(10,*) b_ph_in
+read(10,*) a2_ph_in
+read(10,*) a4_ph_in
+read(10,*) L_fi_in
+read(10,*) kpp1_phi_in
+read(10,*) c0_phi_in
+read(10,*) c1_phi_in
+close(10)
+
+write(*,*) '--- Parameters read from: ', trim(para_file)
+write(*,*) '  kpp_alpha  = ', kpp_alpha_in
+write(*,*) '  mu_ms      = ', mu_ms_in
+write(*,*) '  b_ph       = ', b_ph_in
+write(*,*) '  a2_ph      = ', a2_ph_in
+write(*,*) '  a4_ph      = ', a4_ph_in
+write(*,*) '  L_fi       = ', L_fi_in
+write(*,*) '  kpp1_phi   = ', kpp1_phi_in
+write(*,*) '  c0_phi     = ', c0_phi_in
+write(*,*) '  c1_phi     = ', c1_phi_in
+
+goto 902
+901 write(*,*) 'ERROR: cannot open parameter file: ', trim(para_file)
+    stop
+902 continue
 
 ! =========================================
 ! SEC. I  Initialization
