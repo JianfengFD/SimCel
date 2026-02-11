@@ -814,7 +814,7 @@ END subroutine Get_H_V_new
             r_t = 0.0d0
 
             ! chemical potential: mu = a * tanh(phi)  (bounded, stable)
-            r_t = r_t + C(k)%a2_ph * tanh(C(k)%fi(i))
+            r_t = r_t + C(k)%a2_ph * atanh(C(k)%fi(i))-C(k)%a4_ph*C(k)%fi(i)
 
             ! interface gradient: -b * Lap(fi)
             do j = 1, N_t
@@ -852,8 +852,8 @@ END subroutine Get_H_V_new
             enddo
             C(k)%fi(i) = C(k)%fi(i) + C(k)%L_fi * dt_fi * r_t
             ! safety clamp to prevent overflow
-            if(C(k)%fi(i).gt.20.0d0) C(k)%fi(i) = 20.0d0
-            if(C(k)%fi(i).lt.-20.0d0) C(k)%fi(i) = -20.0d0
+            if(C(k)%fi(i).gt.20.0d0) C(k)%fi(i) = 2.0d0
+            if(C(k)%fi(i).lt.-20.0d0) C(k)%fi(i) = -2.0d0
         enddo
 
         ! Step 3: enforce conservation
@@ -878,69 +878,204 @@ END subroutine Get_H_V_new
 !   (2) Frank elastic: -K_frank * Lap(q_a)
 !   (3) Anisotropic coupling: kpp_uD*(D-D0*cos2th)*(-D0)*d(cos2th)/dq_a * phi
 ! ========================================================
-    subroutine update_Q_cell(C, k, dt_Q)
+subroutine update_Q_cell(C, k, dt_Q)
         implicit none
         type(cel)::C(:)
         integer, intent(in)::k
         real*8, intent(in)::dt_Q
+        
         integer i, j, i1, N_t
         real*8 S_loc, S2, D_loc, P_loc, cos2th
         real*8 dcos_dq1, dcos_dq2
         real*8 G_D, dFdq1, dFdq2
         real*8 Lap_q1, Lap_q2
+        
+        ! --- 平行输运变量 ---
+        real*8 q1_nb, q2_nb
+        real*8 q1_rot, q2_rot
+        real*8 theta_trans
+        real*8 cos_2t, sin_2t
+        
+        ! --- 新增：临时数组，用于存储变化率，避免顺序依赖 ---
+        ! (建议在 type(cel) 中预分配这些数组以避免反复 allocate 的开销)
+        real*8, allocatable :: dq1_dt(:), dq2_dt(:)
 
+        allocate(dq1_dt(C(k)%N_V))
+        allocate(dq2_dt(C(k)%N_V))
+        dq1_dt = 0.0d0
+        dq2_dt = 0.0d0
+
+        ! ==========================================
+        ! 第一步：计算所有点的受力 (基于旧的 q 值)
+        ! ==========================================
         do i = 1, C(k)%N_V
-            if(C(k)%IS_BC_V(i).eq.1) cycle
+            if(C(k)%IS_BC_V(i).eq.1) cycle ! 边界跳过
+            
             N_t = C(k)%N_V_V(i)
-
             S2 = C(k)%q1(i)**2 + C(k)%q2(i)**2
             S_loc = sqrt(S2)
             D_loc = C(k)%D_V(i)
 
-            ! (1) Maier-Saupe derivative
+            ! 1. Maier-Saupe 导数
             dFdq1 = -C(k)%a_Q * C(k)%q1(i) + C(k)%a_Q4 * S2 * C(k)%q1(i)
             dFdq2 = -C(k)%a_Q * C(k)%q2(i) + C(k)%a_Q4 * S2 * C(k)%q2(i)
 
-            ! (2) Frank elastic: -K_frank * Lap(q_a)
+            ! 2. Frank Elastic (协变拉普拉斯)
             Lap_q1 = 0.0d0
             Lap_q2 = 0.0d0
             do j = 1, N_t
-                i1 = C(k)%V_V(i,j)
-                Lap_q1 = Lap_q1 + (C(k)%q1(i1) - C(k)%q1(i)) * C(k)%L_glb(i,j)
-                Lap_q2 = Lap_q2 + (C(k)%q2(i1) - C(k)%q2(i)) * C(k)%L_glb(i,j)
+                i1 = C(k)%V_V(i,j) ! 邻居索引
+                
+                ! 获取邻居的原始值
+                q1_nb = C(k)%q1(i1)
+                q2_nb = C(k)%q2(i1)
+
+                ! [CRITICAL] 计算平行输运角 (Connection Angle)
+                ! 必须实现 get_connection_angle 函数
+                ! 它计算将基矢从 i1 沿测地线平移到 i 时产生的旋转角
+                call get_connection_angle(C(k), i, i1, theta_trans)
+
+                ! 旋转邻居的 Q 张量 (2倍角，因为是二阶张量)
+                cos_2t = cos(2.0d0 * theta_trans)
+                sin_2t = sin(2.0d0 * theta_trans)
+
+                ! Q_rot = R * Q_nb * R^T
+                q1_rot = q1_nb * cos_2t - q2_nb * sin_2t
+                q2_rot = q1_nb * sin_2t + q2_nb * cos_2t
+
+                ! 差分计算 (协变导数的核心)
+                Lap_q1 = Lap_q1 + (q1_rot - C(k)%q1(i)) * C(k)%L_glb(i,j)
+                Lap_q2 = Lap_q2 + (q2_rot - C(k)%q2(i)) * C(k)%L_glb(i,j)
             enddo
+            
             dFdq1 = dFdq1 - C(k)%K_frank * Lap_q1
             dFdq2 = dFdq2 - C(k)%K_frank * Lap_q2
 
-            ! (3) Anisotropic coupling derivative
-            ! cos2th = P / (S*D),  P = q1*dd1 + q2*dd2
-            ! d(cos2th)/dq1 = [dd1*S^2 - P*q1] / (S^3*D)
+            ! 3. 各向异性曲率耦合 (不变)
             if(S_loc.gt.1d-10 .and. D_loc.gt.1d-10)then
                 P_loc = C(k)%q1(i)*C(k)%dd1_V(i) + C(k)%q2(i)*C(k)%dd2_V(i)
-                cos2th = P_loc / (S_loc * D_loc)
-                cos2th = max(-1.0d0, min(1.0d0, cos2th))
-
+                cos2th = max(-1.0d0, min(1.0d0, P_loc / (S_loc * D_loc)))
+                
                 dcos_dq1 = (C(k)%dd1_V(i)*S2 - P_loc*C(k)%q1(i)) / (S_loc**3 * D_loc)
                 dcos_dq2 = (C(k)%dd2_V(i)*S2 - P_loc*C(k)%q2(i)) / (S_loc**3 * D_loc)
 
                 G_D = D_loc - C(k)%D0_u * cos2th
-
-                ! dE_aniso/dq_a = kpp_uD * G_D * (-D0_u * dcos/dq_a) * (1+phi)/2
-                ! but we divide by A_v/3 since the equation is per unit area
+                
+                ! 这里的 (1+phi)/2 系数保留原样
                 dFdq1 = dFdq1 + C(k)%kpp_uD * G_D * (-C(k)%D0_u) * dcos_dq1 * (1.0d0+C(k)%fi(i))*0.5d0
                 dFdq2 = dFdq2 + C(k)%kpp_uD * G_D * (-C(k)%D0_u) * dcos_dq2 * (1.0d0+C(k)%fi(i))*0.5d0
             endif
 
-            ! update (Allen-Cahn relaxation)
-            C(k)%q1(i) = C(k)%q1(i) - C(k)%M_Q * dt_Q * dFdq1
-            C(k)%q2(i) = C(k)%q2(i) - C(k)%M_Q * dt_Q * dFdq2
-            ! safety clamp to prevent blowup
+            ! 存储变化率 (不直接更新 q1, q2)
+            dq1_dt(i) = -C(k)%M_Q * dFdq1
+            dq2_dt(i) = -C(k)%M_Q * dFdq2
+            
+        enddo
+
+        ! ==========================================
+        ! 第二步：统一更新 (Time Integration)
+        ! ==========================================
+        do i = 1, C(k)%N_V
+            if(C(k)%IS_BC_V(i).eq.1) cycle
+            
+            C(k)%q1(i) = C(k)%q1(i) + dq1_dt(i) * dt_Q
+            C(k)%q2(i) = C(k)%q2(i) + dq2_dt(i) * dt_Q
+
+            ! Safety clamp
             if(C(k)%q1(i).gt.10.0d0) C(k)%q1(i) = 10.0d0
             if(C(k)%q1(i).lt.-10.0d0) C(k)%q1(i) = -10.0d0
             if(C(k)%q2(i).gt.10.0d0) C(k)%q2(i) = 10.0d0
             if(C(k)%q2(i).lt.-10.0d0) C(k)%q2(i) = -10.0d0
         enddo
+
+        deallocate(dq1_dt)
+        deallocate(dq2_dt)
+
     end subroutine update_Q_cell
+
+! ========================================================
+    ! Get Connection Angle (Holonomy) for Parallel Transport
+    ! Calculates the rotation angle needed to transport a vector
+    ! from neighbor node i1 to central node i along the geodesic.
+    !
+    ! Input:  C(k), i (center), i1 (neighbor)
+    ! Output: theta (rotation angle in radians)
+    ! ========================================================
+    subroutine get_connection_angle(C, i, i1, theta)
+        implicit none
+        type(cel)::C
+        integer, intent(in) :: i, i1
+        real*8, intent(out) :: theta
+
+        real*8 r_ij(1:3), r_ji(1:3)
+        real*8 t_i(1:3), t_j(1:3)
+        real*8 n_i(1:3), n_j(1:3)
+        real*8 e1_i(1:3), e2_i(1:3)
+        real*8 e1_j(1:3), e2_j(1:3)
+        real*8 phi_i, phi_j
+        real*8 len_t
+        real*8 PI_local
+
+        PI_local = 3.14159265358979d0
+
+        ! 1. 获取几何信息
+        ! 坐标差向量
+        r_ij = C%rv(i1, 1:3) - C%rv(i, 1:3)
+        r_ji = -r_ij
+
+        ! 法向量
+        n_i = C%Norm_V(i, 1:3)
+        n_j = C%Norm_V(i1, 1:3)
+
+        ! 局部切空间基矢 (必须确保已在 Compute_Curvature_Tensor_Cell 中计算)
+        e1_i = C%T1_V(i, 1:3)
+        e2_i = C%T2_V(i, 1:3)
+        e1_j = C%T1_V(i1, 1:3)
+        e2_j = C%T2_V(i1, 1:3)
+
+        ! 2. 在中心点 i 计算边的角度 phi_i
+        ! 投影 r_ij 到 i 的切平面: t = r - (r.n)n
+        t_i = r_ij - sum(r_ij * n_i) * n_i
+        
+        ! 归一化 (防止除零)
+        len_t = sqrt(sum(t_i**2))
+        if (len_t > 1.0d-12) then
+            t_i = t_i / len_t
+        else
+            t_i = 0.0d0
+        endif
+
+        ! 计算角度 atan2(y, x) = atan2(t.e2, t.e1)
+        phi_i = atan2(sum(t_i * e2_i), sum(t_i * e1_i))
+
+        ! 3. 在邻居点 i1 计算边的角度 phi_j (注意用 r_ji)
+        ! 投影 r_ji 到 i1 的切平面
+        t_j = r_ji - sum(r_ji * n_j) * n_j
+        
+        ! 归一化
+        len_t = sqrt(sum(t_j**2))
+        if (len_t > 1.0d-12) then
+            t_j = t_j / len_t
+        else
+            t_j = 0.0d0
+        endif
+
+        ! 计算角度
+        phi_j = atan2(sum(t_j * e2_j), sum(t_j * e1_j))
+
+        ! 4. 计算 Connection Angle
+        ! 公式: theta = phi_i - phi_j + PI
+        theta = phi_i - phi_j + PI_local
+
+        ! 归一化到 [-PI, PI] 区间 (可选，但推荐)
+        do while (theta > PI_local)
+            theta = theta - 2.0d0 * PI_local
+        enddo
+        do while (theta < -PI_local)
+            theta = theta + 2.0d0 * PI_local
+        enddo
+
+    end subroutine get_connection_angle
 
 
 ! ========================================================
