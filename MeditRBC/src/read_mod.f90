@@ -76,8 +76,15 @@ module read_mod
        subroutine read_cell_size(C)
           implicit none
           type(Cel)::C
-          call Read_Mesh_Size(C%FILE_Cel, C%N,C%N_V,C%N_E,C%N_F)       
+          call Read_Mesh_Size(C%FILE_Cel, C%N,C%N_V,C%N_E,C%N_F)
        end subroutine read_cell_size
+
+       subroutine read_cell_rv0(C)
+          implicit none
+          type(Cel)::C
+          integer :: NV_t, NE_t, NF_t
+          call readfe(C%File_MS, C%rv0, NV_t, NE_t, NF_t, C%V_E, C%E_F)
+       end subroutine read_cell_rv0
        
         subroutine readfe(FILE_NAME,rv,N_V,N_E,N_F,V_E,E_F)
 

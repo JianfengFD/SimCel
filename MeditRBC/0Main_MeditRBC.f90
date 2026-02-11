@@ -29,6 +29,8 @@ real*8 b_ph_in, a2_ph_in, a4_ph_in, L_fi_in
 real*8 kpp_u_in, kpp_uD_in, H0_u_in, D0_u_in
 real*8 a_Q_in, a_Q4_in, K_frank_in, M_Q_in
 real*8 vol_ratio
+real*8 R0, rv_center(1:3)
+integer j
 
 ! === I/O
 character*2 kc
@@ -100,6 +102,7 @@ goto 902
 
 ! I-1: Define cell (closed RBC surface)
 Cels(1)%FILE_Cel = 'R10_AD_2562.dat'
+Cels(1)%File_MS  = 'R2562_MS148.dat'
 Cels(1)%N = 20000
 Cels(1)%IS_OPEN = 0       ! CLOSED surface for RBC
 
@@ -123,20 +126,55 @@ Cels(1)%IS_NEXTBC_V = 0
 Cels(1)%IS_BC_E = 0
 Cels(1)%IS_BC_F = 0
 
-! I-7: Center the cell
-call Get_Cell_Center(Cels, 1)
-call Move_Cell(Cels, 1, (/0.0d0, 0.0d0, 0.0d0/))
+! I-7: Read MS reference shape into rv0 (different from PM shape!)
+call read_cell_rv0(Cels(1))
+write(*,*) 'MS reference shape loaded from: ', trim(Cels(1)%File_MS)
 
-! I-8: Compute geometry on current shape
+! I-8: Center both rv (PM shape) and rv0 (MS reference)
+rv_center(1) = sum(Cels(1)%rv(1:Cels(1)%N_V, 1)) / Cels(1)%N_V
+rv_center(2) = sum(Cels(1)%rv(1:Cels(1)%N_V, 2)) / Cels(1)%N_V
+rv_center(3) = sum(Cels(1)%rv(1:Cels(1)%N_V, 3)) / Cels(1)%N_V
+do j = 1, Cels(1)%N_V
+    Cels(1)%rv(j, 1:3) = Cels(1)%rv(j, 1:3) - rv_center
+enddo
+
+rv_center(1) = sum(Cels(1)%rv0(1:Cels(1)%N_V, 1)) / Cels(1)%N_V
+rv_center(2) = sum(Cels(1)%rv0(1:Cels(1)%N_V, 2)) / Cels(1)%N_V
+rv_center(3) = sum(Cels(1)%rv0(1:Cels(1)%N_V, 3)) / Cels(1)%N_V
+do j = 1, Cels(1)%N_V
+    Cels(1)%rv0(j, 1:3) = Cels(1)%rv0(j, 1:3) - rv_center
+enddo
+
+! I-9: Resize both shapes so edge length ~ 1
+!       R0 = 23.75 * sqrt(N_V / 10242)  (reference sphere radius)
+!       rv = R0 * rv / sqrt(area_tot / 4*pi)
+R0 = 23.75d0 * (Cels(1)%N_V / 10242.0d0)**0.5d0
+
+! Resize rv0 (MS reference)
+call Get_area_F(Cels(1)%rv0, Cels(1)%V_F, Cels(1)%N_F, &
+& Cels(1)%Area_F_zero, Cels(1)%Vector_F, Cels(1)%Norm_F)
+Cels(1)%area_tot_zero = sum(Cels(1)%Area_F_zero(1:Cels(1)%N_F))
+Cels(1)%rv0(1:Cels(1)%N_V, 1:3) = R0 * Cels(1)%rv0(1:Cels(1)%N_V, 1:3) &
+& / (Cels(1)%area_tot_zero / 4.0d0 / Pai)**0.5d0
+
+! Resize rv (PM shape) using its own area
+call Get_area_F(Cels(1)%rv, Cels(1)%V_F, Cels(1)%N_F, &
+& Cels(1)%Area_F, Cels(1)%Vector_F, Cels(1)%Norm_F)
+Cels(1)%area_tot = sum(Cels(1)%Area_F(1:Cels(1)%N_F))
+Cels(1)%rv(1:Cels(1)%N_V, 1:3) = R0 * Cels(1)%rv(1:Cels(1)%N_V, 1:3) &
+& / (Cels(1)%area_tot / 4.0d0 / Pai)**0.5d0
+
+write(*,*) 'Shapes resized: R0 = ', R0
+
+! I-10: Compute geometry on resized shape
 call Get_shape_information(Cels, 1)
 
-! I-9: Store reference geometry
-Cels(1)%rv0(1:Cels(1)%N_V, 1:3) = Cels(1)%rv(1:Cels(1)%N_V, 1:3)
+! I-11: Compute reference geometry on rv0
 call Get_Len_E(Cels(1)%rv0, Cels(1)%V_E, Cels(1)%N_E, Cels(1)%Len_E_zero, Cels(1)%Vector_E)
 call Get_area_F(Cels(1)%rv0, Cels(1)%V_F, Cels(1)%N_F, Cels(1)%Area_F_zero, &
 & Cels(1)%Vector_F, Cels(1)%Norm_F)
 
-! I-10: Store reference total area and volume
+! I-12: Store reference total area and volume
 Cels(1)%area_tot_zero = sum(Cels(1)%Area_F_zero(1:Cels(1)%N_F))
 Cels(1)%Vol_total_zero = Cels(1)%Vol_total
 
