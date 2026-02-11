@@ -1,3 +1,5 @@
 *.o
 *.mod
 0Main_MeditRBC
+data/vis_*.png
+*.png
