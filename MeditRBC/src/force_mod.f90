@@ -493,7 +493,7 @@ use Surf_Operation_mod
         endif
 
         E_v = (kpp_u/2.0d0*(H_local-H0_u)**2 + kpp_uD/2.0d0*(D_local-D0_u*cos2th)**2) &
-            * fi(i_center) * area_V_local/3.0d0
+            * (1.0d0+fi(i_center))*0.5d0 * area_V_local/3.0d0
 
         E_out = E_v
 

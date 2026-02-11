@@ -580,7 +580,7 @@ END subroutine Get_H_V_new
             endif
             E_D = C(k)%kpp_uD / 2.0d0 * (D_loc - C(k)%D0_u * cos2th)**2
 
-            E_sum = E_sum + (E_H + E_D) * C(k)%fi(i) * C(k)%area_V(i) / 3.0d0
+            E_sum = E_sum + (E_H + E_D) * (1.0d0+C(k)%fi(i))*0.5d0 * C(k)%area_V(i) / 3.0d0
         enddo
         C(k)%energyAniso = E_sum
     end subroutine aniso_energy_Cell
@@ -823,8 +823,8 @@ END subroutine Get_H_V_new
             enddo
 
             ! anisotropic coupling: delta E_aniso / delta fi
-            ! E_aniso_v = [kpp_u/2*(H-H0_u)^2 + kpp_uD/2*(D-D0*cos2th)^2] * fi * A/3
-            ! => dE/dfi = [kpp_u/2*(H-H0_u)^2 + kpp_uD/2*(D-D0*cos2th)^2]
+            ! E_aniso_v = [kpp_u/2*(H-H0)^2 + kpp_uD/2*(D-D0*cos2th)^2] * (1+fi)/2 * A/3
+            ! => dE/dfi = [kpp_u/2*(H-H0)^2 + kpp_uD/2*(D-D0*cos2th)^2] * 0.5
             S_loc = sqrt(C(k)%q1(i)**2 + C(k)%q2(i)**2)
             D_loc = C(k)%D_V(i)
             if(S_loc.gt.1d-10 .and. D_loc.gt.1d-10)then
@@ -836,7 +836,7 @@ END subroutine Get_H_V_new
             endif
             E_aniso_local = C(k)%kpp_u/2.0d0*(C(k)%H_V(i)-C(k)%H0_u)**2 &
                 + C(k)%kpp_uD/2.0d0*(D_loc - C(k)%D0_u*cos2th)**2
-            r_t = r_t + E_aniso_local
+            r_t = r_t + E_aniso_local * 0.5d0
 
             Delt_fi(i) = r_t
         enddo
@@ -925,10 +925,10 @@ END subroutine Get_H_V_new
 
                 G_D = D_loc - C(k)%D0_u * cos2th
 
-                ! dE_aniso/dq_a = kpp_uD * G_D * (-D0_u * dcos/dq_a) * phi * A_v/3
+                ! dE_aniso/dq_a = kpp_uD * G_D * (-D0_u * dcos/dq_a) * (1+phi)/2
                 ! but we divide by A_v/3 since the equation is per unit area
-                dFdq1 = dFdq1 + C(k)%kpp_uD * G_D * (-C(k)%D0_u) * dcos_dq1 * C(k)%fi(i)
-                dFdq2 = dFdq2 + C(k)%kpp_uD * G_D * (-C(k)%D0_u) * dcos_dq2 * C(k)%fi(i)
+                dFdq1 = dFdq1 + C(k)%kpp_uD * G_D * (-C(k)%D0_u) * dcos_dq1 * (1.0d0+C(k)%fi(i))*0.5d0
+                dFdq2 = dFdq2 + C(k)%kpp_uD * G_D * (-C(k)%D0_u) * dcos_dq2 * (1.0d0+C(k)%fi(i))*0.5d0
             endif
 
             ! update (Allen-Cahn relaxation)
