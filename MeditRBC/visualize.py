@@ -215,9 +215,7 @@ def set_equal_axes(ax, rv, N_V):
     ax.set_xlim(mid[0] - half, mid[0] + half)
     ax.set_ylim(mid[1] - half, mid[1] + half)
     ax.set_zlim(mid[2] - half, mid[2] + half)
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
+    ax.set_axis_off()
 
 
 def plot_shape_only(ax, rv, tri, N_V):
@@ -308,6 +306,9 @@ def plot_shape_phi_Q(ax, rv, tri, N_V, phi_dict, Q_dict, V_E, n_arrows=250):
     extent = (pts.max(axis=0) - pts.min(axis=0)).max()
     arrow_scale = extent / 30.0
 
+    # Offset height: raise arrows above the surface by 0.1 * normal
+    arrow_offset = 0.1
+
     for vi in arrow_ids:
         q1, q2, S, D = Q_dict[vi]
         if S < 1e-6 or not np.isfinite(q1) or not np.isfinite(q2):
@@ -318,7 +319,8 @@ def plot_shape_phi_Q(ax, rv, tri, N_V, phi_dict, Q_dict, V_E, n_arrows=250):
         if dn < 1e-15:
             continue
         d = d / dn * arrow_scale * min(S, 1.0)
-        pos = rv[vi]
+        # Raise arrow origin above the surface so it is not hidden
+        pos = rv[vi] + arrow_offset * normals[vi]
         ax.quiver(pos[0], pos[1], pos[2],
                   d[0], d[1], d[2],
                   color='black', linewidth=0.8, arrow_length_ratio=0.3)

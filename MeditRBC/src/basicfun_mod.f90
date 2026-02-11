@@ -23,7 +23,11 @@ module basicfun_mod
                     C(k)%Norm_V(i,:) = C(k)%Norm_V(i,:)+C(k)%Norm_F(i1,:)*C(k)%area_F(i1)
                     C(k)%area_V(i) = C(k)%area_V(i) + C(k)%area_F(i1)
                 enddo
-                C(k)%Norm_V(i,:) = C(k)%Norm_V(i,:)/sum(C(k)%Norm_V(i,:)**2)**0.5
+                if(sum(C(k)%Norm_V(i,:)**2).gt.1d-30)then
+                    C(k)%Norm_V(i,:) = C(k)%Norm_V(i,:)/sum(C(k)%Norm_V(i,:)**2)**0.5
+                else
+                    C(k)%Norm_V(i,:) = (/0.0d0, 0.0d0, 1.0d0/)
+                endif
            enddo
 
 
@@ -183,7 +187,11 @@ module basicfun_mod
                  Vector_F(i,J)=RR_fun(Rt,J)/2.0
              enddo
              Area_F(i)= (Vector_F(i,1)**2 +Vector_F(i,2)**2+Vector_F(i,3)**2 )**(0.5)
-             Norm_F(i,1:3)=vector_F(i,1:3)/Area_F(i)
+             if(Area_F(i).gt.1d-30)then
+                 Norm_F(i,1:3)=vector_F(i,1:3)/Area_F(i)
+             else
+                 Norm_F(i,1:3)=0.0d0
+             endif
         enddo
     END subroutine Get_area_F
 
@@ -274,7 +282,11 @@ module basicfun_mod
         I_temp2(1:N_F_V(i))=F_V(i,1:N_F_V(i))
         do j=1,N_F_V(i)
             R_VV(j, 1:3)=Rv(I_temp(j) , 1:3)
-            Vect_VV(j, 1:3)=Vector_F(I_temp2(j) , 1:3)/area_F(I_temp2(j))
+            if(area_F(I_temp2(j)).gt.1d-30)then
+                Vect_VV(j, 1:3)=Vector_F(I_temp2(j) , 1:3)/area_F(I_temp2(j))
+            else
+                Vect_VV(j, 1:3)=0.0d0
+            endif
         enddo
         vect_VV(N_F_V(i)+1,1:3)=Vect_VV(1,1:3)
         R_VV(N_F_V(i)+1,1:3)=R_VV(1,1:3)
@@ -623,7 +635,7 @@ END subroutine Get_H_V_new
 
 
 ! ========================================================
-! Phase energy: GL double-well + interface gradient
+! Phase energy: a*ln(cosh(phi)) bulk + interface gradient
 ! ========================================================
     subroutine phase_energy_Cell(C, k)
         implicit none
@@ -646,10 +658,10 @@ END subroutine Get_H_V_new
             E1 = E1 + E_inter
         enddo
 
-        ! GL double-well energy (per vertex)
+        ! bulk free energy: f = a * ln(cosh(phi))  (bounded derivative mu=a*tanh(phi))
         do i = 1, C(k)%N_V
             if(C(k)%IS_BC_V(i).eq.0)then
-            E2 = E2 + (-C(k)%a2_ph/2.0d0*C(k)%fi(i)**2 + C(k)%a4_ph/4.0d0*C(k)%fi(i)**4) &
+            E2 = E2 + C(k)%a2_ph * log(cosh(C(k)%fi(i))) &
                 * C(k)%area_V(i)/3.0d0
             endif
         enddo
@@ -661,6 +673,10 @@ END subroutine Get_H_V_new
         implicit none
         real*8 R(1:3,1:3), area_local, fit(1:3)
         real*8 tr(1:3,1:3), dfi(1:3), E1, E_inter, b
+
+        if(area_local.lt.1d-15)then
+            E_inter = 0.0d0; return
+        endif
 
         E1 = 0.0d0
         tr(1,1:3) = R(2,1:3) - R(1,1:3)
@@ -797,8 +813,8 @@ END subroutine Get_H_V_new
             N_t = C(k)%N_V_V(i)
             r_t = 0.0d0
 
-            ! GL double-well derivative
-            r_t = r_t - C(k)%a2_ph * C(k)%fi(i) + C(k)%a4_ph * C(k)%fi(i)**3
+            ! chemical potential: mu = a * tanh(phi)  (bounded, stable)
+            r_t = r_t + C(k)%a2_ph * tanh(C(k)%fi(i))
 
             ! interface gradient: -b * Lap(fi)
             do j = 1, N_t
@@ -835,6 +851,9 @@ END subroutine Get_H_V_new
                 r_t = r_t + (Delt_fi(i1) - Delt_fi(i)) * C(k)%L_glb(i,j)
             enddo
             C(k)%fi(i) = C(k)%fi(i) + C(k)%L_fi * dt_fi * r_t
+            ! safety clamp to prevent overflow
+            if(C(k)%fi(i).gt.20.0d0) C(k)%fi(i) = 20.0d0
+            if(C(k)%fi(i).lt.-20.0d0) C(k)%fi(i) = -20.0d0
         enddo
 
         ! Step 3: enforce conservation
@@ -915,6 +934,11 @@ END subroutine Get_H_V_new
             ! update (Allen-Cahn relaxation)
             C(k)%q1(i) = C(k)%q1(i) - C(k)%M_Q * dt_Q * dFdq1
             C(k)%q2(i) = C(k)%q2(i) - C(k)%M_Q * dt_Q * dFdq2
+            ! safety clamp to prevent blowup
+            if(C(k)%q1(i).gt.10.0d0) C(k)%q1(i) = 10.0d0
+            if(C(k)%q1(i).lt.-10.0d0) C(k)%q1(i) = -10.0d0
+            if(C(k)%q2(i).gt.10.0d0) C(k)%q2(i) = 10.0d0
+            if(C(k)%q2(i).lt.-10.0d0) C(k)%q2(i) = -10.0d0
         enddo
     end subroutine update_Q_cell
 
