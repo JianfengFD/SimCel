@@ -632,7 +632,7 @@ END subroutine Get_H_V_new
 
 ! ========================================================
 ! Phase energy: bulk free energy + interface gradient
-! Note: bulk uses a2*ln(cosh(phi)) here; mu in update_fi uses a2*atanh(phi)-a4*phi
+! Note: bulk uses a_FH*ln(cosh(phi)) here; mu in update_fi uses a_FH*atanh(phi)-chi*phi
 ! ========================================================
     subroutine phase_energy_Cell(C, k)
         implicit none
@@ -656,10 +656,16 @@ END subroutine Get_H_V_new
         enddo
 
         ! bulk free energy: f = a2 * ln(cosh(phi))
+        ! for large |phi|, use asymptotic: ln(cosh(x)) ~ |x| - ln(2)
         do i = 1, C(k)%N_V
             if(C(k)%IS_BC_V(i).eq.0)then
-            E2 = E2 + C(k)%a2_ph * log(cosh(C(k)%fi(i))) &
-                * C(k)%area_V(i)/3.0d0
+            if(abs(C(k)%fi(i)).lt.50.0d0)then
+                E2 = E2 + C(k)%a_FH * log(cosh(C(k)%fi(i))) &
+                    * C(k)%area_V(i)/3.0d0
+            else
+                E2 = E2 + C(k)%a_FH * (abs(C(k)%fi(i)) - 0.6931472d0) &
+                    * C(k)%area_V(i)/3.0d0
+            endif
             endif
         enddo
         C(k)%energyPh = E1 + E2
@@ -788,7 +794,7 @@ END subroutine Get_H_V_new
 ! ========================================================
 ! Cahn-Hilliard dynamics: update fi (conserved)
 ! mu_fi = delta F / delta fi
-!   = a2*atanh(phi) - a4*phi - b*Lap(phi)
+!   = a_FH*atanh(phi) - chi*phi - b*Lap(phi)
 !     + dE_aniso/dphi
 ! ========================================================
     subroutine update_fi_cell(C, k, dt_fi)
@@ -809,8 +815,10 @@ END subroutine Get_H_V_new
             N_t = C(k)%N_V_V(i)
             r_t = 0.0d0
 
-            ! chemical potential: mu = a2*atanh(phi) - a4*phi
-            r_t = r_t + C(k)%a2_ph * atanh(C(k)%fi(i))-C(k)%a4_ph*C(k)%fi(i)
+            ! chemical potential: mu = a_FH*atanh(phi) - chi*phi
+            ! guard: clamp phi to (-1+eps, 1-eps) before atanh to avoid singularity
+            r_t = r_t + C(k)%a_FH * atanh(max(-0.999d0, min(0.999d0, C(k)%fi(i)))) &
+                - C(k)%chi_ph*C(k)%fi(i)
 
             ! interface gradient: -b * Lap(fi)
             do j = 1, N_t
@@ -828,6 +836,8 @@ END subroutine Get_H_V_new
                 + C(k)%D0_u**2*(1.0d0+S2)/2.0d0)
             r_t = r_t + E_aniso_local * 0.5d0
 
+            ! NaN guard
+            if(r_t.ne.r_t) r_t = 0.0d0
             Delt_fi(i) = r_t
         enddo
 
@@ -841,9 +851,9 @@ END subroutine Get_H_V_new
                 r_t = r_t + (Delt_fi(i1) - Delt_fi(i)) * C(k)%L_glb(i,j)
             enddo
             C(k)%fi(i) = C(k)%fi(i) + C(k)%L_fi * dt_fi * r_t
-            ! safety clamp to prevent overflow
-            if(C(k)%fi(i).gt.20.0d0) C(k)%fi(i) = 2.0d0
-            if(C(k)%fi(i).lt.-20.0d0) C(k)%fi(i) = -2.0d0
+            ! safety clamp: keep phi in (-1,1) for atanh stability
+            if(C(k)%fi(i).gt.0.999d0) C(k)%fi(i) = 0.999d0
+            if(C(k)%fi(i).lt.-0.999d0) C(k)%fi(i) = -0.999d0
         enddo
 
         ! Step 3: enforce conservation
@@ -948,6 +958,9 @@ subroutine update_Q_cell(C, k, dt_Q)
             ! 存储变化率 (不直接更新 q1, q2)
             dq1_dt(i) = -C(k)%M_Q * dFdq1
             dq2_dt(i) = -C(k)%M_Q * dFdq2
+            ! NaN guard
+            if(dq1_dt(i).ne.dq1_dt(i)) dq1_dt(i) = 0.0d0
+            if(dq2_dt(i).ne.dq2_dt(i)) dq2_dt(i) = 0.0d0
             
         enddo
 
@@ -960,11 +973,11 @@ subroutine update_Q_cell(C, k, dt_Q)
             C(k)%q1(i) = C(k)%q1(i) + dq1_dt(i) * dt_Q
             C(k)%q2(i) = C(k)%q2(i) + dq2_dt(i) * dt_Q
 
-            ! Safety clamp
-            if(C(k)%q1(i).gt.10.0d0) C(k)%q1(i) = 10.0d0
-            if(C(k)%q1(i).lt.-10.0d0) C(k)%q1(i) = -10.0d0
-            if(C(k)%q2(i).gt.10.0d0) C(k)%q2(i) = 10.0d0
-            if(C(k)%q2(i).lt.-10.0d0) C(k)%q2(i) = -10.0d0
+            ! Safety clamp (Maier-Saupe equilibrium S~1, so ±3 is generous)
+            if(C(k)%q1(i).gt.3.0d0) C(k)%q1(i) = 3.0d0
+            if(C(k)%q1(i).lt.-3.0d0) C(k)%q1(i) = -3.0d0
+            if(C(k)%q2(i).gt.3.0d0) C(k)%q2(i) = 3.0d0
+            if(C(k)%q2(i).lt.-3.0d0) C(k)%q2(i) = -3.0d0
         enddo
 
         deallocate(dq1_dt)

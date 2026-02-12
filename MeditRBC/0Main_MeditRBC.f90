@@ -25,7 +25,7 @@ real*8 F_total(1:3), F_norm
 
 ! === Parameters
 real*8 H_modulus_in, kpp_alpha_in, mu_ms_in
-real*8 b_ph_in, a2_ph_in, a4_ph_in, L_fi_in
+real*8 b_ph_in, a_FH_in, chi_ph_in, L_fi_in
 real*8 kpp_u_in, kpp_uD_in, H0_u_in, D0_u_in
 real*8 a_Q_in, a_Q4_in, K_frank_in, M_Q_in
 real*8 vol_ratio
@@ -41,9 +41,6 @@ integer :: nargs
 ! =========================================
 ! SEC. 0  Parameter setup
 ! =========================================
-dt = 0.002
-dt_fi = 0.005
-dt_Q  = 0.005
 f_rescale = 0.6
 seed1 = 26345678
 H_modulus_in = 1.0
@@ -62,8 +59,8 @@ open(10, FILE=trim(para_file), STATUS='old', ERR=901)
 read(10,*) kpp_alpha_in
 read(10,*) mu_ms_in
 read(10,*) b_ph_in
-read(10,*) a2_ph_in
-read(10,*) a4_ph_in
+read(10,*) a_FH_in
+read(10,*) chi_ph_in
 read(10,*) L_fi_in
 read(10,*) kpp_u_in
 read(10,*) kpp_uD_in
@@ -73,14 +70,17 @@ read(10,*) a_Q_in
 read(10,*) a_Q4_in
 read(10,*) K_frank_in
 read(10,*) M_Q_in
+read(10,*) dt
+read(10,*) dt_fi
+read(10,*) dt_Q
 close(10)
 
 write(*,*) '--- MeditRBC: Parameters read from: ', trim(para_file)
 write(*,*) '  kpp_alpha  = ', kpp_alpha_in
 write(*,*) '  mu_ms      = ', mu_ms_in
 write(*,*) '  b_ph       = ', b_ph_in
-write(*,*) '  a2_ph      = ', a2_ph_in
-write(*,*) '  a4_ph      = ', a4_ph_in
+write(*,*) '  a_FH       = ', a_FH_in
+write(*,*) '  chi_ph     = ', chi_ph_in
 write(*,*) '  L_fi       = ', L_fi_in
 write(*,*) '  kpp_u      = ', kpp_u_in
 write(*,*) '  kpp_uD     = ', kpp_uD_in
@@ -90,6 +90,9 @@ write(*,*) '  a_Q        = ', a_Q_in
 write(*,*) '  a_Q4       = ', a_Q4_in
 write(*,*) '  K_frank    = ', K_frank_in
 write(*,*) '  M_Q        = ', M_Q_in
+write(*,*) '  dt         = ', dt
+write(*,*) '  dt_fi      = ', dt_fi
+write(*,*) '  dt_Q       = ', dt_Q
 
 goto 902
 901 write(*,*) 'ERROR: cannot open parameter file: ', trim(para_file)
@@ -197,8 +200,8 @@ Cels(1)%b2_ms = 0.75
 
 ! I-13: Set phase field parameters
 Cels(1)%b_ph = b_ph_in
-Cels(1)%a2_ph = a2_ph_in
-Cels(1)%a4_ph = a4_ph_in
+Cels(1)%a_FH = a_FH_in
+Cels(1)%chi_ph = chi_ph_in
 Cels(1)%L_fi = L_fi_in
 
 ! I-14: Set anisotropic coupling parameters

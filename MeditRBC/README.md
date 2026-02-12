@@ -12,7 +12,7 @@ Simulates red blood cell (RBC) membrane deformation coupled with a **concentrati
 ### Concentration Field phi(r)
 phi is an order parameter: phi = phi_protein - phi_empty, so the actual protein concentration is **(1+phi)/2**.
 
-- **Chemical potential**: mu = a2 * atanh(phi) - a4 * phi  (Flory-Huggins entropy + chi interaction)
+- **Chemical potential**: mu = a_FH * atanh(phi) - chi * phi  (Flory-Huggins entropy + chi interaction)
 - **Interface gradient**: b/2 * |nabla_s phi|^2 (cotangent-weight discrete Laplacian)
 - **Dynamics**: Cahn-Hilliard (conserved): d phi/dt = L_phi * Delta_s(mu)
 
@@ -85,8 +85,8 @@ MeditRBC/
 25.0    kpp_alpha    Shear area modulus ratio
 12.5    mu_ms        Shear modulus
 1.0     b_ph         Interface gradient coefficient for phi
-1.0     a2_ph        Entropy coefficient (a2 in a2*atanh(phi))
-1.0     a4_ph        Chi interaction coefficient (a4 in -a4*phi)
+1.0     a_FH         Flory-Huggins entropy coefficient (mu += a_FH*atanh(phi))
+1.0     chi_ph       Chi interaction coefficient (mu -= chi_ph*phi)
 0.5     L_fi         Cahn-Hilliard mobility
 1.0     kpp_u        Mean-curvature anisotropic modulus
 2.0     kpp_uD       Deviatoric-curvature anisotropic modulus
@@ -96,6 +96,9 @@ MeditRBC/
 1.0     a_Q4         Maier-Saupe quartic coefficient
 0.5     K_frank      Frank elastic constant
 0.5     M_Q          Q-tensor relaxation mobility
+0.002   dt           Vertex dynamics time step
+0.005   dt_fi        Cahn-Hilliard time step
+0.005   dt_Q         Q-tensor relaxation time step
 ```
 
 ## Build & Run
