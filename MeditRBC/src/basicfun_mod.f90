@@ -549,36 +549,32 @@ END subroutine Get_H_V_new
 
 ! ========================================================
 ! Anisotropic curvature-orientation coupling energy
-! E_aniso = sum_v [kpp_u/2*(H-H0_u)^2 + kpp_uD/2*(D-D0_u*cos2theta)^2] * phi * A_v/3
-! cos(2theta) = (q1*dd1 + q2*dd2) / (S*D)
+! E_aniso = sum_v (1+phi)/2 * [kpp_u/2*(H-H0)^2
+!   + kpp_uD/2*(D^2 - 2*D0*(q1*dd1+q2*dd2) + D0^2*(1+S^2)/2)] * A_v/3
 ! ========================================================
     subroutine aniso_energy_Cell(C, k)
         implicit none
         type(cel)::C(:)
         integer, intent(in)::k
         integer i
-        real*8 E_sum, S_loc, D_loc, P_loc, cos2th
+        real*8 E_sum, S2, D_loc, P_loc
         real*8 E_H, E_D
 
         E_sum = 0.0d0
         do i = 1, C(k)%N_V
             if(C(k)%IS_BC_V(i).eq.1) cycle
 
-            S_loc = sqrt(C(k)%q1(i)**2 + C(k)%q2(i)**2)
+            S2 = C(k)%q1(i)**2 + C(k)%q2(i)**2
             D_loc = C(k)%D_V(i)
+            P_loc = C(k)%q1(i)*C(k)%dd1_V(i) + C(k)%q2(i)*C(k)%dd2_V(i)
 
             ! mean curvature coupling
             E_H = C(k)%kpp_u / 2.0d0 * (C(k)%H_V(i) - C(k)%H0_u)**2
 
-            ! deviatoric curvature-orientation coupling
-            if(S_loc.gt.1d-10 .and. D_loc.gt.1d-10)then
-                P_loc = C(k)%q1(i)*C(k)%dd1_V(i) + C(k)%q2(i)*C(k)%dd2_V(i)
-                cos2th = P_loc / (S_loc * D_loc)
-                cos2th = max(-1.0d0, min(1.0d0, cos2th))
-            else
-                cos2th = 0.0d0
-            endif
-            E_D = C(k)%kpp_uD / 2.0d0 * (D_loc - C(k)%D0_u * cos2th)**2
+            ! deviatoric curvature-orientation coupling (S-dependent)
+            E_D = C(k)%kpp_uD / 2.0d0 * (D_loc**2 &
+                - 2.0d0*C(k)%D0_u*P_loc &
+                + C(k)%D0_u**2 * (1.0d0 + S2) / 2.0d0)
 
             E_sum = E_sum + (E_H + E_D) * (1.0d0+C(k)%fi(i))*0.5d0 * C(k)%area_V(i) / 3.0d0
         enddo
@@ -635,7 +631,8 @@ END subroutine Get_H_V_new
 
 
 ! ========================================================
-! Phase energy: a*ln(cosh(phi)) bulk + interface gradient
+! Phase energy: bulk free energy + interface gradient
+! Note: bulk uses a2*ln(cosh(phi)) here; mu in update_fi uses a2*atanh(phi)-a4*phi
 ! ========================================================
     subroutine phase_energy_Cell(C, k)
         implicit none
@@ -658,7 +655,7 @@ END subroutine Get_H_V_new
             E1 = E1 + E_inter
         enddo
 
-        ! bulk free energy: f = a * ln(cosh(phi))  (bounded derivative mu=a*tanh(phi))
+        ! bulk free energy: f = a2 * ln(cosh(phi))
         do i = 1, C(k)%N_V
             if(C(k)%IS_BC_V(i).eq.0)then
             E2 = E2 + C(k)%a2_ph * log(cosh(C(k)%fi(i))) &
@@ -791,9 +788,8 @@ END subroutine Get_H_V_new
 ! ========================================================
 ! Cahn-Hilliard dynamics: update fi (conserved)
 ! mu_fi = delta F / delta fi
-!   = GL terms + anisotropic coupling
-!   = -a2*fi + a4*fi^3 - b*Lap(fi)
-!     + [kpp_u/2*(H-H0_u)^2 + kpp_uD/2*(D-D0*cos2th)^2]
+!   = a2*atanh(phi) - a4*phi - b*Lap(phi)
+!     + dE_aniso/dphi
 ! ========================================================
     subroutine update_fi_cell(C, k, dt_fi)
         implicit none
@@ -804,7 +800,7 @@ END subroutine Get_H_V_new
         real*8 r_t
         real*8 Delt_fi(1:20000)
         real*8 area_tot, sum1
-        real*8 S_loc, D_loc, P_loc, cos2th, E_aniso_local
+        real*8 S2, D_loc, P_loc, E_aniso_local
 
         ! Step 1: chemical potential at each vertex
         Delt_fi = 0.0
@@ -813,7 +809,7 @@ END subroutine Get_H_V_new
             N_t = C(k)%N_V_V(i)
             r_t = 0.0d0
 
-            ! chemical potential: mu = a * tanh(phi)  (bounded, stable)
+            ! chemical potential: mu = a2*atanh(phi) - a4*phi
             r_t = r_t + C(k)%a2_ph * atanh(C(k)%fi(i))-C(k)%a4_ph*C(k)%fi(i)
 
             ! interface gradient: -b * Lap(fi)
@@ -822,20 +818,14 @@ END subroutine Get_H_V_new
                 r_t = r_t - C(k)%b_ph * (C(k)%fi(i1) - C(k)%fi(i)) * C(k)%L_glb(i,j)
             enddo
 
-            ! anisotropic coupling: delta E_aniso / delta fi
-            ! E_aniso_v = [kpp_u/2*(H-H0)^2 + kpp_uD/2*(D-D0*cos2th)^2] * (1+fi)/2 * A/3
-            ! => dE/dfi = [kpp_u/2*(H-H0)^2 + kpp_uD/2*(D-D0*cos2th)^2] * 0.5
-            S_loc = sqrt(C(k)%q1(i)**2 + C(k)%q2(i)**2)
+            ! anisotropic coupling: dE_aniso/dphi = 0.5 * [E_H + E_D]
+            S2 = C(k)%q1(i)**2 + C(k)%q2(i)**2
             D_loc = C(k)%D_V(i)
-            if(S_loc.gt.1d-10 .and. D_loc.gt.1d-10)then
-                P_loc = C(k)%q1(i)*C(k)%dd1_V(i) + C(k)%q2(i)*C(k)%dd2_V(i)
-                cos2th = P_loc / (S_loc * D_loc)
-                cos2th = max(-1.0d0, min(1.0d0, cos2th))
-            else
-                cos2th = 0.0d0
-            endif
+            P_loc = C(k)%q1(i)*C(k)%dd1_V(i) + C(k)%q2(i)*C(k)%dd2_V(i)
             E_aniso_local = C(k)%kpp_u/2.0d0*(C(k)%H_V(i)-C(k)%H0_u)**2 &
-                + C(k)%kpp_uD/2.0d0*(D_loc - C(k)%D0_u*cos2th)**2
+                + C(k)%kpp_uD/2.0d0*(D_loc**2 &
+                - 2.0d0*C(k)%D0_u*P_loc &
+                + C(k)%D0_u**2*(1.0d0+S2)/2.0d0)
             r_t = r_t + E_aniso_local * 0.5d0
 
             Delt_fi(i) = r_t
@@ -876,7 +866,7 @@ END subroutine Get_H_V_new
 ! delta F / delta q_a =
 !   (1) Maier-Saupe: -a_Q*q_a + a_Q4*(q1^2+q2^2)*q_a
 !   (2) Frank elastic: -K_frank * Lap(q_a)
-!   (3) Anisotropic coupling: kpp_uD*(D-D0*cos2th)*(-D0)*d(cos2th)/dq_a * phi
+!   (3) Anisotropic coupling: (1+phi)/2 * kpp_uD/2 * (-2*D0*dd_a + D0^2*q_a)
 ! ========================================================
 subroutine update_Q_cell(C, k, dt_Q)
         implicit none
@@ -885,9 +875,7 @@ subroutine update_Q_cell(C, k, dt_Q)
         real*8, intent(in)::dt_Q
         
         integer i, j, i1, N_t
-        real*8 S_loc, S2, D_loc, P_loc, cos2th
-        real*8 dcos_dq1, dcos_dq2
-        real*8 G_D, dFdq1, dFdq2
+        real*8 S2, dFdq1, dFdq2
         real*8 Lap_q1, Lap_q2
         
         ! --- 平行输运变量 ---
@@ -913,8 +901,6 @@ subroutine update_Q_cell(C, k, dt_Q)
             
             N_t = C(k)%N_V_V(i)
             S2 = C(k)%q1(i)**2 + C(k)%q2(i)**2
-            S_loc = sqrt(S2)
-            D_loc = C(k)%D_V(i)
 
             ! 1. Maier-Saupe 导数
             dFdq1 = -C(k)%a_Q * C(k)%q1(i) + C(k)%a_Q4 * S2 * C(k)%q1(i)
@@ -951,20 +937,13 @@ subroutine update_Q_cell(C, k, dt_Q)
             dFdq1 = dFdq1 - C(k)%K_frank * Lap_q1
             dFdq2 = dFdq2 - C(k)%K_frank * Lap_q2
 
-            ! 3. 各向异性曲率耦合 (不变)
-            if(S_loc.gt.1d-10 .and. D_loc.gt.1d-10)then
-                P_loc = C(k)%q1(i)*C(k)%dd1_V(i) + C(k)%q2(i)*C(k)%dd2_V(i)
-                cos2th = max(-1.0d0, min(1.0d0, P_loc / (S_loc * D_loc)))
-                
-                dcos_dq1 = (C(k)%dd1_V(i)*S2 - P_loc*C(k)%q1(i)) / (S_loc**3 * D_loc)
-                dcos_dq2 = (C(k)%dd2_V(i)*S2 - P_loc*C(k)%q2(i)) / (S_loc**3 * D_loc)
-
-                G_D = D_loc - C(k)%D0_u * cos2th
-                
-                ! 这里的 (1+phi)/2 系数保留原样
-                dFdq1 = dFdq1 + C(k)%kpp_uD * G_D * (-C(k)%D0_u) * dcos_dq1 * (1.0d0+C(k)%fi(i))*0.5d0
-                dFdq2 = dFdq2 + C(k)%kpp_uD * G_D * (-C(k)%D0_u) * dcos_dq2 * (1.0d0+C(k)%fi(i))*0.5d0
-            endif
+            ! 3. 各向异性曲率耦合 (S-dependent form)
+            ! dE_D/dq1 = (1+phi)/2 * kpp_uD/2 * (-2*D0*dd1 + D0^2*q1)
+            ! dE_D/dq2 = (1+phi)/2 * kpp_uD/2 * (-2*D0*dd2 + D0^2*q2)
+            dFdq1 = dFdq1 + (1.0d0+C(k)%fi(i))*0.5d0 * C(k)%kpp_uD/2.0d0 &
+                * (-2.0d0*C(k)%D0_u*C(k)%dd1_V(i) + C(k)%D0_u**2*C(k)%q1(i))
+            dFdq2 = dFdq2 + (1.0d0+C(k)%fi(i))*0.5d0 * C(k)%kpp_uD/2.0d0 &
+                * (-2.0d0*C(k)%D0_u*C(k)%dd2_V(i) + C(k)%D0_u**2*C(k)%q2(i))
 
             ! 存储变化率 (不直接更新 q1, q2)
             dq1_dt(i) = -C(k)%M_Q * dFdq1

@@ -12,7 +12,7 @@ Simulates red blood cell (RBC) membrane deformation coupled with a **concentrati
 ### Concentration Field phi(r)
 phi is an order parameter: phi = phi_protein - phi_empty, so the actual protein concentration is **(1+phi)/2**.
 
-- **Bulk free energy**: a * ln(cosh(phi)), giving a bounded chemical potential mu = a * tanh(phi)
+- **Chemical potential**: mu = a2 * atanh(phi) - a4 * phi  (Flory-Huggins entropy + chi interaction)
 - **Interface gradient**: b/2 * |nabla_s phi|^2 (cotangent-weight discrete Laplacian)
 - **Dynamics**: Cahn-Hilliard (conserved): d phi/dt = L_phi * Delta_s(mu)
 
@@ -26,15 +26,17 @@ Nematic order on the surface, represented as q1 = S cos(2alpha), q2 = S sin(2alp
 ### Anisotropic Curvature-Orientation Coupling
 
 ```
-E_aniso = [kpp_u/2 * (H - H0_u)^2 + kpp_uD/2 * (D - D0 * cos(2theta))^2] * (1+phi)/2
+E_aniso = (1+phi)/2 * [kpp_u/2 * (H - H0)^2
+  + kpp_uD/2 * (D^2 - 2*D0*(q1*dd1 + q2*dd2) + D0^2*(1+S^2)/2)]
 ```
 
 where:
-- D = sqrt(H^2 - K) is the deviatoric curvature (computed from mean curvature H and Gaussian curvature K)
-- K is obtained via the angle deficit method on the triangulated mesh
-- theta is the angle between the principal curvature direction and the nematic director u
-- cos(2theta) = (q1 * dd1 + q2 * dd2) / (S * D), a tensor contraction avoiding explicit angle computation
-- dd1, dd2 are deviatoric curvature tensor components extracted via the Taubin shape operator
+- D = sqrt(H^2 - K) is the deviatoric curvature
+- K is obtained via the angle deficit method: K_v = (2pi - sum angles) / (A_v/3)
+- S^2 = q1^2 + q2^2 is the squared scalar order parameter
+- q1*dd1 + q2*dd2 is a tensor contraction coupling orientation to curvature direction
+- dd1, dd2 are deviatoric curvature tensor components from the Taubin shape operator
+- Variational derivatives: dE/dq1 = (1+phi)/2 * kpp_uD/2 * (-2*D0*dd1 + D0^2*q1)
 
 ## Numerical Methods
 
@@ -47,7 +49,7 @@ where:
 | Surface Laplacian | Cotangent-weight discrete Laplacian |
 | Mechanical forces | Numerical finite difference (vertex perturbation delta = 1e-6) |
 | phi dynamics | Cahn-Hilliard with surface Laplacian of chemical potential |
-| Q dynamics | Allen-Cahn relaxation with analytical variational derivatives |
+| Q dynamics | Allen-Cahn with covariant Laplacian (parallel transport) |
 
 ## File Structure
 
@@ -83,8 +85,8 @@ MeditRBC/
 25.0    kpp_alpha    Shear area modulus ratio
 12.5    mu_ms        Shear modulus
 1.0     b_ph         Interface gradient coefficient for phi
-1.0     a2_ph        Bulk chemical potential strength (a in a*tanh(phi))
-1.0     a4_ph        (reserved, not used with tanh formulation)
+1.0     a2_ph        Entropy coefficient (a2 in a2*atanh(phi))
+1.0     a4_ph        Chi interaction coefficient (a4 in -a4*phi)
 0.5     L_fi         Cahn-Hilliard mobility
 1.0     kpp_u        Mean-curvature anisotropic modulus
 2.0     kpp_uD       Deviatoric-curvature anisotropic modulus

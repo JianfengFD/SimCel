@@ -386,7 +386,7 @@ use Surf_Operation_mod
         real*8 nrm(1:3), n_len, e_ij(1:3), e_len, kn
         real*8 t_p(1:3), t_l, T1(1:3), T2(1:3), cp, sp
         real*8 M11, M12, M22, ws, d1, d2, Dm, dd1, dd2
-        real*8 S_loc, P_loc, cos2th, E_v
+        real*8 S2_loc, P_loc, E_v
         integer j
 
         R_work(1:N_t, 1:3) = R_nb(1:N_t, 1:3)
@@ -482,17 +482,13 @@ use Surf_Operation_mod
             dd1 = 0.0d0; dd2 = 0.0d0
         endif
 
-        ! anisotropic energy at this vertex
-        S_loc = sqrt(q1(i_center)**2 + q2(i_center)**2)
-        if(S_loc.gt.1d-10 .and. D_local.gt.1d-10)then
-            P_loc = q1(i_center)*dd1 + q2(i_center)*dd2
-            cos2th = P_loc / (S_loc * D_local)
-            cos2th = max(-1.0d0, min(1.0d0, cos2th))
-        else
-            cos2th = 0.0d0
-        endif
+        ! anisotropic energy at this vertex (S-dependent form)
+        S2_loc = q1(i_center)**2 + q2(i_center)**2
+        P_loc = q1(i_center)*dd1 + q2(i_center)*dd2
 
-        E_v = (kpp_u/2.0d0*(H_local-H0_u)**2 + kpp_uD/2.0d0*(D_local-D0_u*cos2th)**2) &
+        E_v = (kpp_u/2.0d0*(H_local-H0_u)**2 &
+            + kpp_uD/2.0d0*(D_local**2 - 2.0d0*D0_u*P_loc &
+            + D0_u**2*(1.0d0+S2_loc)/2.0d0)) &
             * (1.0d0+fi(i_center))*0.5d0 * area_V_local/3.0d0
 
         E_out = E_v
