@@ -27,16 +27,26 @@ Nematic order on the surface, represented as q1 = S cos(2alpha), q2 = S sin(2alp
 
 ```
 E_aniso = (1+phi)/2 * [kpp_u/2 * (H - H0)^2
-  + kpp_uD/2 * (D^2 - 2*D0*(q1*dd1 + q2*dd2) + D0^2*(1+S^2)/2)]
+  + kpp_uD/2 * (D^2 - 2*D0*C + D0^2 * G)]
 ```
 
-where:
-- D = sqrt(H^2 - K) is the deviatoric curvature
-- K is obtained via the angle deficit method: K_v = (2pi - sum angles) / (A_v/3)
-- S^2 = q1^2 + q2^2 is the squared scalar order parameter
-- q1*dd1 + q2*dd2 is a tensor contraction coupling orientation to curvature direction
-- dd1, dd2 are deviatoric curvature tensor components from the Taubin shape operator
-- Variational derivatives: dE/dq1 = (1+phi)/2 * kpp_uD/2 * (-2*D0*dd1 + D0^2*q1)
+where C = q1\*dd1 + q2\*dd2 and:
+```
+G = 0.5*(1 - C4(S)) + C4(S) * (C/(S*D))^2
+```
+
+C_4(S) is a Padé approximant for the mean-field average <cos^2(2theta)>:
+```
+C4(u) = (0.5*u - 0.6024*u^2 + 0.2224*u^3) / (1 - 1.488*u + 0.608*u^2),  u = S^2
+```
+
+Limits: C4(S=0) = 0 (isotropic, G=0.5), C4(S=1) = 1 (nematic, G=cos^2(2theta)).
+
+Other quantities:
+- D = sqrt(H^2 - K), deviatoric curvature (angle deficit K)
+- S^2 = q1^2 + q2^2, squared scalar order parameter
+- dd1, dd2: deviatoric curvature tensor components (Taubin shape operator)
+- Variational derivatives include dG/dq_a terms with C4 and dC4/du
 
 ## Numerical Methods
 
