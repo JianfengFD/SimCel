@@ -12,7 +12,7 @@ Simulates red blood cell (RBC) membrane deformation coupled with a **concentrati
 ### Concentration Field phi(r)
 phi is an order parameter: phi = phi_protein - phi_empty, so the actual protein concentration is **(1+phi)/2**.
 
-- **Bulk free energy**: a * ln(cosh(phi)), giving a bounded chemical potential mu = a * tanh(phi)
+- **Chemical potential**: mu = a_FH * atanh(phi) - chi * phi  (Flory-Huggins entropy + chi interaction)
 - **Interface gradient**: b/2 * |nabla_s phi|^2 (cotangent-weight discrete Laplacian)
 - **Dynamics**: Cahn-Hilliard (conserved): d phi/dt = L_phi * Delta_s(mu)
 
@@ -26,15 +26,27 @@ Nematic order on the surface, represented as q1 = S cos(2alpha), q2 = S sin(2alp
 ### Anisotropic Curvature-Orientation Coupling
 
 ```
-E_aniso = [kpp_u/2 * (H - H0_u)^2 + kpp_uD/2 * (D - D0 * cos(2theta))^2] * (1+phi)/2
+E_aniso = (1+phi)/2 * [kpp_u/2 * (H - H0)^2
+  + kpp_uD/2 * (D^2 - 2*D0*C + D0^2 * G)]
 ```
 
-where:
-- D = sqrt(H^2 - K) is the deviatoric curvature (computed from mean curvature H and Gaussian curvature K)
-- K is obtained via the angle deficit method on the triangulated mesh
-- theta is the angle between the principal curvature direction and the nematic director u
-- cos(2theta) = (q1 * dd1 + q2 * dd2) / (S * D), a tensor contraction avoiding explicit angle computation
-- dd1, dd2 are deviatoric curvature tensor components extracted via the Taubin shape operator
+where C = q1\*dd1 + q2\*dd2 and:
+```
+G = 0.5*(1 - C4(S)) + C4(S) * (C/(S*D))^2
+```
+
+C_4(S) is a Padé approximant for the mean-field average <cos^2(2theta)>:
+```
+C4(u) = (0.5*u - 0.6024*u^2 + 0.2224*u^3) / (1 - 1.488*u + 0.608*u^2),  u = S^2
+```
+
+Limits: C4(S=0) = 0 (isotropic, G=0.5), C4(S=1) = 1 (nematic, G=cos^2(2theta)).
+
+Other quantities:
+- D = sqrt(H^2 - K), deviatoric curvature (angle deficit K)
+- S^2 = q1^2 + q2^2, squared scalar order parameter
+- dd1, dd2: deviatoric curvature tensor components (Taubin shape operator)
+- Variational derivatives include dG/dq_a terms with C4 and dC4/du
 
 ## Numerical Methods
 
@@ -47,7 +59,7 @@ where:
 | Surface Laplacian | Cotangent-weight discrete Laplacian |
 | Mechanical forces | Numerical finite difference (vertex perturbation delta = 1e-6) |
 | phi dynamics | Cahn-Hilliard with surface Laplacian of chemical potential |
-| Q dynamics | Allen-Cahn relaxation with analytical variational derivatives |
+| Q dynamics | Allen-Cahn with covariant Laplacian (parallel transport) |
 
 ## File Structure
 
@@ -83,8 +95,8 @@ MeditRBC/
 25.0    kpp_alpha    Shear area modulus ratio
 12.5    mu_ms        Shear modulus
 1.0     b_ph         Interface gradient coefficient for phi
-1.0     a2_ph        Bulk chemical potential strength (a in a*tanh(phi))
-1.0     a4_ph        (reserved, not used with tanh formulation)
+1.0     a_FH         Flory-Huggins entropy coefficient (mu += a_FH*atanh(phi))
+1.0     chi_ph       Chi interaction coefficient (mu -= chi_ph*phi)
 0.5     L_fi         Cahn-Hilliard mobility
 1.0     kpp_u        Mean-curvature anisotropic modulus
 2.0     kpp_uD       Deviatoric-curvature anisotropic modulus
@@ -94,6 +106,9 @@ MeditRBC/
 1.0     a_Q4         Maier-Saupe quartic coefficient
 0.5     K_frank      Frank elastic constant
 0.5     M_Q          Q-tensor relaxation mobility
+0.002   dt           Vertex dynamics time step
+0.005   dt_fi        Cahn-Hilliard time step
+0.005   dt_Q         Q-tensor relaxation time step
 ```
 
 ## Build & Run

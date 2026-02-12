@@ -549,36 +549,54 @@ END subroutine Get_H_V_new
 
 ! ========================================================
 ! Anisotropic curvature-orientation coupling energy
-! E_aniso = sum_v [kpp_u/2*(H-H0_u)^2 + kpp_uD/2*(D-D0_u*cos2theta)^2] * phi * A_v/3
-! cos(2theta) = (q1*dd1 + q2*dd2) / (S*D)
+! E_aniso = sum_v (1+phi)/2 * [kpp_u/2*(H-H0)^2
+!   + kpp_uD/2*(D^2 - 2*D0*C + D0^2*G)] * A_v/3
+! where C = q1*dd1+q2*dd2, G = 0.5*(1-C4) + C4*(C/(SD))^2
+! C_4(S) is a Padé approximant for <cos^2(2theta)>_MF
 ! ========================================================
     subroutine aniso_energy_Cell(C, k)
         implicit none
         type(cel)::C(:)
         integer, intent(in)::k
         integer i
-        real*8 E_sum, S_loc, D_loc, P_loc, cos2th
+        real*8 E_sum, S2, D_loc, P_loc
         real*8 E_H, E_D
+        real*8 C4, C4n, C4d, R_loc, G, uD2
 
         E_sum = 0.0d0
         do i = 1, C(k)%N_V
             if(C(k)%IS_BC_V(i).eq.1) cycle
 
-            S_loc = sqrt(C(k)%q1(i)**2 + C(k)%q2(i)**2)
+            S2 = C(k)%q1(i)**2 + C(k)%q2(i)**2
             D_loc = C(k)%D_V(i)
+            P_loc = C(k)%q1(i)*C(k)%dd1_V(i) + C(k)%q2(i)*C(k)%dd2_V(i)
 
             ! mean curvature coupling
             E_H = C(k)%kpp_u / 2.0d0 * (C(k)%H_V(i) - C(k)%H0_u)**2
 
-            ! deviatoric curvature-orientation coupling
-            if(S_loc.gt.1d-10 .and. D_loc.gt.1d-10)then
-                P_loc = C(k)%q1(i)*C(k)%dd1_V(i) + C(k)%q2(i)*C(k)%dd2_V(i)
-                cos2th = P_loc / (S_loc * D_loc)
-                cos2th = max(-1.0d0, min(1.0d0, cos2th))
+            ! C_4(S) Padé approximant
+            C4n = 0.5d0*S2 - 0.6024047076d0*S2**2 + 0.2223912277d0*S2**3
+            C4d = 1.0d0 - 1.4879019896d0*S2 + 0.6078885097d0*S2**2
+            if(abs(C4d).gt.1d-15)then
+                C4 = C4n / C4d
             else
-                cos2th = 0.0d0
+                C4 = 0.0d0
             endif
-            E_D = C(k)%kpp_uD / 2.0d0 * (D_loc - C(k)%D0_u * cos2th)**2
+
+            ! R = (C/(SD))^2, guarded
+            uD2 = S2 * D_loc**2
+            if(uD2.gt.1d-20)then
+                R_loc = min(P_loc**2 / uD2, 1.0d0)
+            else
+                R_loc = 0.0d0
+            endif
+
+            ! G = 0.5*(1-C4) + C4*R
+            G = 0.5d0*(1.0d0 - C4) + C4*R_loc
+
+            ! deviatoric curvature-orientation coupling (C4-corrected)
+            E_D = C(k)%kpp_uD / 2.0d0 * (D_loc**2 &
+                - 2.0d0*C(k)%D0_u*P_loc + C(k)%D0_u**2 * G)
 
             E_sum = E_sum + (E_H + E_D) * (1.0d0+C(k)%fi(i))*0.5d0 * C(k)%area_V(i) / 3.0d0
         enddo
@@ -635,7 +653,8 @@ END subroutine Get_H_V_new
 
 
 ! ========================================================
-! Phase energy: a*ln(cosh(phi)) bulk + interface gradient
+! Phase energy: bulk free energy + interface gradient
+! Note: bulk uses a_FH*ln(cosh(phi)) here; mu in update_fi uses a_FH*atanh(phi)-chi*phi
 ! ========================================================
     subroutine phase_energy_Cell(C, k)
         implicit none
@@ -658,11 +677,17 @@ END subroutine Get_H_V_new
             E1 = E1 + E_inter
         enddo
 
-        ! bulk free energy: f = a * ln(cosh(phi))  (bounded derivative mu=a*tanh(phi))
+        ! bulk free energy: f = a2 * ln(cosh(phi))
+        ! for large |phi|, use asymptotic: ln(cosh(x)) ~ |x| - ln(2)
         do i = 1, C(k)%N_V
             if(C(k)%IS_BC_V(i).eq.0)then
-            E2 = E2 + C(k)%a2_ph * log(cosh(C(k)%fi(i))) &
-                * C(k)%area_V(i)/3.0d0
+            if(abs(C(k)%fi(i)).lt.50.0d0)then
+                E2 = E2 + C(k)%a_FH * log(cosh(C(k)%fi(i))) &
+                    * C(k)%area_V(i)/3.0d0
+            else
+                E2 = E2 + C(k)%a_FH * (abs(C(k)%fi(i)) - 0.6931472d0) &
+                    * C(k)%area_V(i)/3.0d0
+            endif
             endif
         enddo
         C(k)%energyPh = E1 + E2
@@ -791,9 +816,8 @@ END subroutine Get_H_V_new
 ! ========================================================
 ! Cahn-Hilliard dynamics: update fi (conserved)
 ! mu_fi = delta F / delta fi
-!   = GL terms + anisotropic coupling
-!   = -a2*fi + a4*fi^3 - b*Lap(fi)
-!     + [kpp_u/2*(H-H0_u)^2 + kpp_uD/2*(D-D0*cos2th)^2]
+!   = a_FH*atanh(phi) - chi*phi - b*Lap(phi)
+!     + dE_aniso/dphi
 ! ========================================================
     subroutine update_fi_cell(C, k, dt_fi)
         implicit none
@@ -804,7 +828,8 @@ END subroutine Get_H_V_new
         real*8 r_t
         real*8 Delt_fi(1:20000)
         real*8 area_tot, sum1
-        real*8 S_loc, D_loc, P_loc, cos2th, E_aniso_local
+        real*8 S2, D_loc, P_loc, E_aniso_local
+        real*8 C4, C4n, C4d, R_loc, G, uD2
 
         ! Step 1: chemical potential at each vertex
         Delt_fi = 0.0
@@ -813,8 +838,10 @@ END subroutine Get_H_V_new
             N_t = C(k)%N_V_V(i)
             r_t = 0.0d0
 
-            ! chemical potential: mu = a * tanh(phi)  (bounded, stable)
-            r_t = r_t + C(k)%a2_ph * atanh(C(k)%fi(i))-C(k)%a4_ph*C(k)%fi(i)
+            ! chemical potential: mu = a_FH*atanh(phi) - chi*phi
+            ! guard: clamp phi to (-1+eps, 1-eps) before atanh to avoid singularity
+            r_t = r_t + C(k)%a_FH * atanh(max(-0.999d0, min(0.999d0, C(k)%fi(i)))) &
+                - C(k)%chi_ph*C(k)%fi(i)
 
             ! interface gradient: -b * Lap(fi)
             do j = 1, N_t
@@ -822,22 +849,31 @@ END subroutine Get_H_V_new
                 r_t = r_t - C(k)%b_ph * (C(k)%fi(i1) - C(k)%fi(i)) * C(k)%L_glb(i,j)
             enddo
 
-            ! anisotropic coupling: delta E_aniso / delta fi
-            ! E_aniso_v = [kpp_u/2*(H-H0)^2 + kpp_uD/2*(D-D0*cos2th)^2] * (1+fi)/2 * A/3
-            ! => dE/dfi = [kpp_u/2*(H-H0)^2 + kpp_uD/2*(D-D0*cos2th)^2] * 0.5
-            S_loc = sqrt(C(k)%q1(i)**2 + C(k)%q2(i)**2)
+            ! anisotropic coupling: dE_aniso/dphi = 0.5 * [E_H + E_D]
+            S2 = C(k)%q1(i)**2 + C(k)%q2(i)**2
             D_loc = C(k)%D_V(i)
-            if(S_loc.gt.1d-10 .and. D_loc.gt.1d-10)then
-                P_loc = C(k)%q1(i)*C(k)%dd1_V(i) + C(k)%q2(i)*C(k)%dd2_V(i)
-                cos2th = P_loc / (S_loc * D_loc)
-                cos2th = max(-1.0d0, min(1.0d0, cos2th))
+            P_loc = C(k)%q1(i)*C(k)%dd1_V(i) + C(k)%q2(i)*C(k)%dd2_V(i)
+            C4n = 0.5d0*S2 - 0.6024047076d0*S2**2 + 0.2223912277d0*S2**3
+            C4d = 1.0d0 - 1.4879019896d0*S2 + 0.6078885097d0*S2**2
+            if(abs(C4d).gt.1d-15)then
+                C4 = C4n / C4d
             else
-                cos2th = 0.0d0
+                C4 = 0.0d0
             endif
+            uD2 = S2 * D_loc**2
+            if(uD2.gt.1d-20)then
+                R_loc = min(P_loc**2 / uD2, 1.0d0)
+            else
+                R_loc = 0.0d0
+            endif
+            G = 0.5d0*(1.0d0 - C4) + C4*R_loc
             E_aniso_local = C(k)%kpp_u/2.0d0*(C(k)%H_V(i)-C(k)%H0_u)**2 &
-                + C(k)%kpp_uD/2.0d0*(D_loc - C(k)%D0_u*cos2th)**2
+                + C(k)%kpp_uD/2.0d0*(D_loc**2 &
+                - 2.0d0*C(k)%D0_u*P_loc + C(k)%D0_u**2*G)
             r_t = r_t + E_aniso_local * 0.5d0
 
+            ! NaN guard
+            if(r_t.ne.r_t) r_t = 0.0d0
             Delt_fi(i) = r_t
         enddo
 
@@ -851,9 +887,9 @@ END subroutine Get_H_V_new
                 r_t = r_t + (Delt_fi(i1) - Delt_fi(i)) * C(k)%L_glb(i,j)
             enddo
             C(k)%fi(i) = C(k)%fi(i) + C(k)%L_fi * dt_fi * r_t
-            ! safety clamp to prevent overflow
-            if(C(k)%fi(i).gt.20.0d0) C(k)%fi(i) = 2.0d0
-            if(C(k)%fi(i).lt.-20.0d0) C(k)%fi(i) = -2.0d0
+            ! safety clamp: keep phi in (-1,1) for atanh stability
+            if(C(k)%fi(i).gt.0.999d0) C(k)%fi(i) = 0.999d0
+            if(C(k)%fi(i).lt.-0.999d0) C(k)%fi(i) = -0.999d0
         enddo
 
         ! Step 3: enforce conservation
@@ -876,7 +912,7 @@ END subroutine Get_H_V_new
 ! delta F / delta q_a =
 !   (1) Maier-Saupe: -a_Q*q_a + a_Q4*(q1^2+q2^2)*q_a
 !   (2) Frank elastic: -K_frank * Lap(q_a)
-!   (3) Anisotropic coupling: kpp_uD*(D-D0*cos2th)*(-D0)*d(cos2th)/dq_a * phi
+!   (3) Anisotropic coupling: (1+phi)/2 * kpp_uD/2 * (-2*D0*dd_a + D0^2*dG/dq_a)
 ! ========================================================
 subroutine update_Q_cell(C, k, dt_Q)
         implicit none
@@ -885,10 +921,10 @@ subroutine update_Q_cell(C, k, dt_Q)
         real*8, intent(in)::dt_Q
         
         integer i, j, i1, N_t
-        real*8 S_loc, S2, D_loc, P_loc, cos2th
-        real*8 dcos_dq1, dcos_dq2
-        real*8 G_D, dFdq1, dFdq2
+        real*8 S2, dFdq1, dFdq2
         real*8 Lap_q1, Lap_q2
+        real*8 D_loc, P_loc, C4, C4n, C4d, C4p, C4ou
+        real*8 Np, Dp_fn, R_loc, uD2, dG_cm, dG_dq1, dG_dq2, phi_half
         
         ! --- 平行输运变量 ---
         real*8 q1_nb, q2_nb
@@ -913,8 +949,6 @@ subroutine update_Q_cell(C, k, dt_Q)
             
             N_t = C(k)%N_V_V(i)
             S2 = C(k)%q1(i)**2 + C(k)%q2(i)**2
-            S_loc = sqrt(S2)
-            D_loc = C(k)%D_V(i)
 
             ! 1. Maier-Saupe 导数
             dFdq1 = -C(k)%a_Q * C(k)%q1(i) + C(k)%a_Q4 * S2 * C(k)%q1(i)
@@ -951,24 +985,67 @@ subroutine update_Q_cell(C, k, dt_Q)
             dFdq1 = dFdq1 - C(k)%K_frank * Lap_q1
             dFdq2 = dFdq2 - C(k)%K_frank * Lap_q2
 
-            ! 3. 各向异性曲率耦合 (不变)
-            if(S_loc.gt.1d-10 .and. D_loc.gt.1d-10)then
-                P_loc = C(k)%q1(i)*C(k)%dd1_V(i) + C(k)%q2(i)*C(k)%dd2_V(i)
-                cos2th = max(-1.0d0, min(1.0d0, P_loc / (S_loc * D_loc)))
-                
-                dcos_dq1 = (C(k)%dd1_V(i)*S2 - P_loc*C(k)%q1(i)) / (S_loc**3 * D_loc)
-                dcos_dq2 = (C(k)%dd2_V(i)*S2 - P_loc*C(k)%q2(i)) / (S_loc**3 * D_loc)
+            ! 3. 各向异性曲率耦合 (C4-corrected)
+            ! dE_D/dq_a = (1+phi)/2 * kpp_uD/2 * (-2*D0*dd_a + D0^2*dG/dq_a)
+            D_loc = C(k)%D_V(i)
+            P_loc = C(k)%q1(i)*C(k)%dd1_V(i) + C(k)%q2(i)*C(k)%dd2_V(i)
 
-                G_D = D_loc - C(k)%D0_u * cos2th
-                
-                ! 这里的 (1+phi)/2 系数保留原样
-                dFdq1 = dFdq1 + C(k)%kpp_uD * G_D * (-C(k)%D0_u) * dcos_dq1 * (1.0d0+C(k)%fi(i))*0.5d0
-                dFdq2 = dFdq2 + C(k)%kpp_uD * G_D * (-C(k)%D0_u) * dcos_dq2 * (1.0d0+C(k)%fi(i))*0.5d0
+            ! C4 and dC4/du
+            C4n = 0.5d0*S2 - 0.6024047076d0*S2**2 + 0.2223912277d0*S2**3
+            C4d = 1.0d0 - 1.4879019896d0*S2 + 0.6078885097d0*S2**2
+            if(abs(C4d).gt.1d-15)then
+                C4 = C4n / C4d
+                Np = 0.5d0 - 1.2048094152d0*S2 + 0.6671736831d0*S2**2
+                Dp_fn = -1.4879019896d0 + 1.2157770194d0*S2
+                C4p = (Np*C4d - C4n*Dp_fn) / C4d**2
+            else
+                C4 = 0.0d0; C4p = 0.5d0
             endif
+
+            ! R = (C/(SD))^2
+            uD2 = S2 * D_loc**2
+            if(uD2.gt.1d-20)then
+                R_loc = min(P_loc**2 / uD2, 1.0d0)
+            else
+                R_loc = 0.0d0
+            endif
+
+            ! C4/u (well-defined at u=0, limit = 0.5)
+            if(S2.gt.1d-10)then
+                C4ou = C4 / S2
+            else
+                C4ou = 0.5d0
+            endif
+
+            ! dG/dq_a = 2*q_a*[C4'*(R-0.5) - (C4/u)*R] + dd_a*2*(C4/u)*P/D^2
+            if(S2.gt.1d-10)then
+                dG_cm = C4p*(R_loc - 0.5d0) - C4ou*R_loc
+                if(D_loc**2.gt.1d-15)then
+                    dG_dq1 = 2.0d0*C(k)%q1(i)*dG_cm &
+                        + C(k)%dd1_V(i)*2.0d0*C4ou*P_loc/D_loc**2
+                    dG_dq2 = 2.0d0*C(k)%q2(i)*dG_cm &
+                        + C(k)%dd2_V(i)*2.0d0*C4ou*P_loc/D_loc**2
+                else
+                    dG_dq1 = 2.0d0*C(k)%q1(i)*dG_cm
+                    dG_dq2 = 2.0d0*C(k)%q2(i)*dG_cm
+                endif
+            else
+                dG_dq1 = 0.0d0
+                dG_dq2 = 0.0d0
+            endif
+
+            phi_half = (1.0d0 + C(k)%fi(i)) * 0.5d0
+            dFdq1 = dFdq1 + phi_half * C(k)%kpp_uD/2.0d0 &
+                * (-2.0d0*C(k)%D0_u*C(k)%dd1_V(i) + C(k)%D0_u**2*dG_dq1)
+            dFdq2 = dFdq2 + phi_half * C(k)%kpp_uD/2.0d0 &
+                * (-2.0d0*C(k)%D0_u*C(k)%dd2_V(i) + C(k)%D0_u**2*dG_dq2)
 
             ! 存储变化率 (不直接更新 q1, q2)
             dq1_dt(i) = -C(k)%M_Q * dFdq1
             dq2_dt(i) = -C(k)%M_Q * dFdq2
+            ! NaN guard
+            if(dq1_dt(i).ne.dq1_dt(i)) dq1_dt(i) = 0.0d0
+            if(dq2_dt(i).ne.dq2_dt(i)) dq2_dt(i) = 0.0d0
             
         enddo
 
@@ -981,11 +1058,11 @@ subroutine update_Q_cell(C, k, dt_Q)
             C(k)%q1(i) = C(k)%q1(i) + dq1_dt(i) * dt_Q
             C(k)%q2(i) = C(k)%q2(i) + dq2_dt(i) * dt_Q
 
-            ! Safety clamp
-            if(C(k)%q1(i).gt.10.0d0) C(k)%q1(i) = 10.0d0
-            if(C(k)%q1(i).lt.-10.0d0) C(k)%q1(i) = -10.0d0
-            if(C(k)%q2(i).gt.10.0d0) C(k)%q2(i) = 10.0d0
-            if(C(k)%q2(i).lt.-10.0d0) C(k)%q2(i) = -10.0d0
+            ! Safety clamp (Maier-Saupe equilibrium S~1, so ±3 is generous)
+            if(C(k)%q1(i).gt.3.0d0) C(k)%q1(i) = 3.0d0
+            if(C(k)%q1(i).lt.-3.0d0) C(k)%q1(i) = -3.0d0
+            if(C(k)%q2(i).gt.3.0d0) C(k)%q2(i) = 3.0d0
+            if(C(k)%q2(i).lt.-3.0d0) C(k)%q2(i) = -3.0d0
         enddo
 
         deallocate(dq1_dt)

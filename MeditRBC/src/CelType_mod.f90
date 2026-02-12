@@ -48,7 +48,7 @@ module CelType_mod
     real*8, allocatable:: L_glb(:,:)   ! discrete Laplacian weights (N_V, 20)
     real*8 order_fi                    ! conserved order parameter
     real*8 L_fi                        ! CH mobility
-    real*8 b_ph, a2_ph, a4_ph         ! Ginzburg-Landau parameters
+    real*8 b_ph, a_FH, chi_ph          ! phase field: b(gradient), a_FH(entropy), chi(interaction)
     real*8 energyPh                    ! phase energy
 
   ! ###### Curvature tensor (principal curvatures and directions)
